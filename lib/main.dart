@@ -382,12 +382,12 @@ class BookReaderGestureHandler extends StatefulWidget {
   final Function(Offset) onSentenceHighlightRequested;
 
   const BookReaderGestureHandler({
-    Key? key,
+    super.key,
     required this.child,
     required this.onSwipingModeChanged,
     required this.onHighlightModeChanged,
     required this.onSentenceHighlightRequested,
-  }) : super(key: key);
+  });
 
   @override
   State<BookReaderGestureHandler> createState() =>
@@ -397,8 +397,6 @@ class BookReaderGestureHandler extends StatefulWidget {
 class _BookReaderGestureHandlerState extends State<BookReaderGestureHandler> {
   // Track the first pointer to touch down - this will be our "anchor" pointer
   int? _anchorPointerId;
-  Offset? _anchorPointerPosition;
-  DateTime? _anchorPointerTimestamp;
 
   // Track anchor pointer velocity
   Offset? _anchorPointerLastPosition;
@@ -450,8 +448,6 @@ class _BookReaderGestureHandlerState extends State<BookReaderGestureHandler> {
         if (_anchorPointerId == null) {
           _anchorPointerId = event.pointer;
           _activePointers[event.pointer] = true; // Mark as anchor
-          _anchorPointerPosition = event.position;
-          _anchorPointerTimestamp = DateTime.now();
 
           // Initialize velocity tracking
           _anchorPointerLastPosition = event.position;
@@ -464,7 +460,7 @@ class _BookReaderGestureHandlerState extends State<BookReaderGestureHandler> {
 
         // Resolve states based on updated event history
         print('Pointer going to resolve');
-        _resolveModeStates();
+        _resolveModesFromHistory();
       },
 
       onPointerUp: (PointerUpEvent event) {
@@ -477,8 +473,6 @@ class _BookReaderGestureHandlerState extends State<BookReaderGestureHandler> {
         if (_anchorPointerId == event.pointer) {
           // Reset the anchor pointer
           _anchorPointerId = null;
-          _anchorPointerPosition = null;
-          _anchorPointerTimestamp = null;
           _anchorPointerLastPosition = null;
           _anchorPointerLastTimestamp = null;
           _anchorPointerVelocity = 0.0;
@@ -489,7 +483,7 @@ class _BookReaderGestureHandlerState extends State<BookReaderGestureHandler> {
 
         // Resolve states based on updated event history
         print('Pointer going to resolve');
-        _resolveModeStates();
+        _resolveModesFromHistory();
       },
 
       onPointerCancel: (PointerCancelEvent event) {
@@ -502,8 +496,6 @@ class _BookReaderGestureHandlerState extends State<BookReaderGestureHandler> {
         if (_anchorPointerId == event.pointer) {
           // Reset the anchor pointer
           _anchorPointerId = null;
-          _anchorPointerPosition = null;
-          _anchorPointerTimestamp = null;
           _anchorPointerLastPosition = null;
           _anchorPointerLastTimestamp = null;
           _anchorPointerVelocity = 0.0;
@@ -514,7 +506,7 @@ class _BookReaderGestureHandlerState extends State<BookReaderGestureHandler> {
 
         // Resolve states based on updated event history
         print('Pointer going to resolve');
-        _resolveModeStates();
+        _resolveModesFromHistory();
       },
 
       onPointerMove: (PointerMoveEvent event) {
@@ -608,7 +600,7 @@ class _BookReaderGestureHandlerState extends State<BookReaderGestureHandler> {
   }
 
   // Resolve swiping and highlighting modes based on event history
-  void _resolveModeStates() {
+  void _resolveModesFromHistory() {
     // Set Highlighting Mode
     if (_eventHistory.isNotEmpty &&
         _eventHistory.first.type == InteractionEventType.up &&
