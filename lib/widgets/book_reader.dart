@@ -100,9 +100,11 @@ class _BookReaderState extends State<BookReader> {
                       child: Padding(
                         padding: const EdgeInsets.all(16.0),
                         child: SingleChildScrollView(
-                          child: Text(
+                          child: SelectableText(
                             _generateLoremIpsum(index),
                             style: const TextStyle(fontSize: 16, height: 1.5),
+                            enableInteractiveSelection:
+                                _interactionModeState.isHighlightingMode,
                           ),
                         ),
                       ),
