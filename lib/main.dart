@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'dart:math';
 
 void main() {
@@ -252,44 +253,23 @@ class _BookReaderState extends State<BookReader> {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        GestureDetector(
-          // know when any gesture has happened
-          onTapDown: (_) {
-            _interactionModeState.addInteraction(Action.tapDown);
+        BookReaderGestureHandler(
+          onSwipingModeChanged: (isEnabled) {
             setState(() {
-              _interactionModeState.isSwipingMode = true;
+              _interactionModeState.isSwipingMode = isEnabled;
+              print("Swiping mode set to: $isEnabled");
             });
           },
-          onTapUp: (_) {
-            print('tap up');
-            _interactionModeState.addInteraction(Action.tapUp);
+          onHighlightModeChanged: (isEnabled) {
             setState(() {
-              _interactionModeState.reset(); // Reset modes on tap up
+              _interactionModeState.isHighlightingMode = isEnabled;
+              print("Highlighting mode set to: $isEnabled");
             });
           },
-          onTapCancel: () {
-            print('tap cancel');
-            _interactionModeState.addInteraction(Action.tapCancel);
+          onSentenceHighlightRequested: (position) {
+            // TODO: Implement sentence highlighting
+            print("Sentence highlight requested at: $position");
           },
-          onHorizontalDragStart: (_) {
-            print('horizontal drag start');
-          },
-          onDoubleTap: () {
-            _interactionModeState.addInteraction(Action.doubleTap);
-          },
-          onPanStart: (_) {
-            print("pan start");
-          },
-          onPanUpdate: (_) {
-            print("pan update");
-          },
-          onPanEnd: (_) {
-            print("pan end");
-          },
-          onPanCancel: () {
-            print("pan cancel");
-          },
-          // swipe
           child: Column(
             children: [
               Expanded(
@@ -297,7 +277,7 @@ class _BookReaderState extends State<BookReader> {
                   controller: _pageController,
                   physics:
                       _interactionModeState.isHighlightingMode
-                          ? const NeverScrollableScrollPhysics() // Disable swipe in highlighting mode
+                          ? const NeverScrollableScrollPhysics()
                           : (_interactionModeState.isSwipingMode
                               ? const FastPageScrollPhysics()
                               : const NeverScrollableScrollPhysics()),
@@ -393,4 +373,332 @@ class _BookReaderState extends State<BookReader> {
       ],
     );
   }
+}
+
+class BookReaderGestureHandler extends StatefulWidget {
+  final Widget child;
+  final Function(bool) onSwipingModeChanged;
+  final Function(bool) onHighlightModeChanged;
+  final Function(Offset) onSentenceHighlightRequested;
+
+  const BookReaderGestureHandler({
+    Key? key,
+    required this.child,
+    required this.onSwipingModeChanged,
+    required this.onHighlightModeChanged,
+    required this.onSentenceHighlightRequested,
+  }) : super(key: key);
+
+  @override
+  State<BookReaderGestureHandler> createState() =>
+      _BookReaderGestureHandlerState();
+}
+
+class _BookReaderGestureHandlerState extends State<BookReaderGestureHandler> {
+  // Track the first pointer to touch down - this will be our "anchor" pointer
+  int? _anchorPointerId;
+  Offset? _anchorPointerPosition;
+  DateTime? _anchorPointerTimestamp;
+
+  // Track anchor pointer velocity
+  Offset? _anchorPointerLastPosition;
+  DateTime? _anchorPointerLastTimestamp;
+  double _anchorPointerVelocity = 0.0;
+
+  // Maximum allowed anchor pointer velocity (logical pixels per second)
+  // Adjust this value based on testing
+  static const double _maxAnchorVelocity = 100.0;
+
+  // Timeout for anchor pointer velocity calculation. If no movement is detected
+  // within this time, the anchor pointer velocity is considered to be 0.
+
+  // Track all active pointers (ID -> is anchor)
+  final Map<int, bool> _activePointers = {};
+
+  // Track if we're in swiping mode
+  bool _isSwipingMode = false;
+
+  // Track if we're in highlighting mode
+  bool _isHighlightingMode = false;
+
+  // Flag to prevent recursive mode setting
+  bool _isSettingMode = false;
+
+  // LIFO history of interaction events
+  final List<InteractionEvent> _eventHistory = [];
+
+  // Maximum number of events to keep in history
+  static const int _maxHistorySize = 200;
+
+  // Minimum number of events to reduce history to
+  static const int _minHistorySize = 10;
+
+  // Maximum duration between down-up-down for highlight mode
+  static const int _highlightSequenceDurationMs = 300;
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      // Use listener to get raw pointer events with IDs
+      onPointerDown: (PointerDownEvent event) {
+        print('Pointer down: ID ${event.pointer}');
+
+        // Track active pointer
+        _activePointers[event.pointer] = false;
+
+        // If this is the first pointer, make it the anchor pointer
+        if (_anchorPointerId == null) {
+          _anchorPointerId = event.pointer;
+          _activePointers[event.pointer] = true; // Mark as anchor
+          _anchorPointerPosition = event.position;
+          _anchorPointerTimestamp = DateTime.now();
+
+          // Initialize velocity tracking
+          _anchorPointerLastPosition = event.position;
+          _anchorPointerLastTimestamp = DateTime.now();
+          _anchorPointerVelocity = 0.0;
+        }
+
+        // Record this event
+        _addEvent(InteractionEventType.down, event.pointer, event.position);
+
+        // Resolve states based on updated event history
+        print('Pointer going to resolve');
+        _resolveModeStates();
+      },
+
+      onPointerUp: (PointerUpEvent event) {
+        print('Pointer up: ID ${event.pointer}');
+
+        // Record this event
+        _addEvent(InteractionEventType.up, event.pointer, event.position);
+
+        // Apply immediate state changes for pointer up
+        if (_anchorPointerId == event.pointer) {
+          // Reset the anchor pointer
+          _anchorPointerId = null;
+          _anchorPointerPosition = null;
+          _anchorPointerTimestamp = null;
+          _anchorPointerLastPosition = null;
+          _anchorPointerLastTimestamp = null;
+          _anchorPointerVelocity = 0.0;
+        }
+
+        // Remove from active pointers
+        _activePointers.remove(event.pointer);
+
+        // Resolve states based on updated event history
+        print('Pointer going to resolve');
+        _resolveModeStates();
+      },
+
+      onPointerCancel: (PointerCancelEvent event) {
+        print('Pointer cancel: ID ${event.pointer}');
+
+        // Record this event
+        _addEvent(InteractionEventType.cancel, event.pointer, event.position);
+
+        // Apply immediate state changes for pointer cancel
+        if (_anchorPointerId == event.pointer) {
+          // Reset the anchor pointer
+          _anchorPointerId = null;
+          _anchorPointerPosition = null;
+          _anchorPointerTimestamp = null;
+          _anchorPointerLastPosition = null;
+          _anchorPointerLastTimestamp = null;
+          _anchorPointerVelocity = 0.0;
+        }
+
+        // Remove from active pointers
+        _activePointers.remove(event.pointer);
+
+        // Resolve states based on updated event history
+        print('Pointer going to resolve');
+        _resolveModeStates();
+      },
+
+      onPointerMove: (PointerMoveEvent event) {
+        // Track anchor pointer velocity if this is the anchor pointer
+        if (event.pointer == _anchorPointerId && !_isHighlightingMode) {
+          _updateAnchorVelocity(event.position);
+          _setSwipingMode(_anchorPointerVelocity < _maxAnchorVelocity);
+        }
+
+        // Record move event (optional, can generate a lot of events)
+        // _addEvent(InteractionEventType.move, event.pointer, event.position);
+
+        // If this is not the anchor pointer and we're in swiping mode,
+        // this is the pointer that should trigger page turns
+        if (event.pointer != _anchorPointerId &&
+            _isSwipingMode &&
+            !_isHighlightingMode) {
+          // Page turns will be handled by the PageView physics
+        }
+      },
+
+      child: widget.child,
+    );
+  }
+
+  // Update anchor pointer velocity
+  void _updateAnchorVelocity(Offset currentPosition) {
+    if (_anchorPointerLastPosition == null ||
+        _anchorPointerLastTimestamp == null) {
+      _anchorPointerLastPosition = currentPosition;
+      _anchorPointerLastTimestamp = DateTime.now();
+      return;
+    }
+
+    final now = DateTime.now();
+    final timeDeltaSeconds =
+        now.difference(_anchorPointerLastTimestamp!).inMilliseconds / 1000.0;
+
+    // Avoid division by zero or very small time deltas
+    if (timeDeltaSeconds < 0.001) return;
+
+    final distance = (currentPosition - _anchorPointerLastPosition!).distance;
+    final instantVelocity = distance / timeDeltaSeconds;
+
+    // Use exponential smoothing to avoid spikes
+    // Alpha of 0.3 gives more weight to previous velocity for stability
+    const alpha = 0.3;
+    _anchorPointerVelocity =
+        alpha * instantVelocity + (1 - alpha) * _anchorPointerVelocity;
+
+    // Update last position and timestamp for next calculation
+    _anchorPointerLastPosition = currentPosition;
+    _anchorPointerLastTimestamp = now;
+
+    // Debug
+    if (_anchorPointerVelocity > 100) {
+      print('Anchor velocity: $_anchorPointerVelocity px/s');
+    }
+  }
+
+  // Add an event to the history
+  void _addEvent(InteractionEventType type, int pointerId, Offset position) {
+    // Avoid adding duplicate highlightModeSet events
+    if (type == InteractionEventType.highlightModeSet &&
+        _eventHistory.isNotEmpty &&
+        _eventHistory.first.type == InteractionEventType.highlightModeSet) {
+      return;
+    }
+
+    final InteractionEvent event = InteractionEvent(
+      type: type,
+      pointerId: pointerId,
+      position: position,
+      timestamp: DateTime.now(),
+    );
+
+    // Add to the beginning (LIFO)
+    _eventHistory.insert(0, event);
+
+    // Trim history if too long
+    if (_eventHistory.length > _maxHistorySize) {
+      _eventHistory.removeRange(_minHistorySize, _eventHistory.length);
+    }
+
+    // Debug
+    print(
+      'Event history: ${_eventHistory.map((e) => e.type).take(5).toList()}',
+    );
+
+    print('Event history length: ${_eventHistory.length}');
+  }
+
+  // Resolve swiping and highlighting modes based on event history
+  void _resolveModeStates() {
+    // Set Highlighting Mode
+    if (_eventHistory.isNotEmpty &&
+        _eventHistory.first.type == InteractionEventType.up &&
+        _eventHistory.first.pointerId != _anchorPointerId) {
+      _setHighlightingMode(false);
+    } else if (_isDownUpDownPattern()) {
+      _setHighlightingMode(true);
+      _setSwipingMode(false);
+    }
+
+    // Determine if we should be in swiping mode when not in highlighting mode
+    if (!_isHighlightingMode) {
+      bool shouldSwipe =
+          _anchorPointerId != null &&
+          _anchorPointerVelocity < _maxAnchorVelocity;
+      _setSwipingMode(shouldSwipe);
+    }
+  }
+
+  // Check if recent events follow down-up-down pattern within time threshold
+  bool _isDownUpDownPattern() {
+    // Need at least 3 events for down-up-down pattern
+    if (_eventHistory.length < 3) return false;
+
+    // Check for down-up-down pattern
+    final isDownUpDownPattern =
+        _eventHistory[0].type == InteractionEventType.down &&
+        _eventHistory[1].type == InteractionEventType.up &&
+        _eventHistory[2].type == InteractionEventType.down;
+
+    // Check timing
+    final isWithinTimeThreshold =
+        _eventHistory[0].timestamp
+            .difference(_eventHistory[2].timestamp)
+            .inMilliseconds <
+        _highlightSequenceDurationMs;
+
+    return isDownUpDownPattern && isWithinTimeThreshold;
+  }
+
+  void _setSwipingMode(bool value) {
+    if (_isSwipingMode != value) {
+      _isSwipingMode = value;
+      widget.onSwipingModeChanged(value);
+    }
+  }
+
+  void _setHighlightingMode(bool value) {
+    // Prevent recursive calls
+    if (_isSettingMode) return;
+
+    if (_isHighlightingMode != value) {
+      _isSettingMode = true;
+
+      _isHighlightingMode = value;
+      if (value) {
+        // Add highlight mode set event
+        _addEvent(InteractionEventType.highlightModeSet, -1, Offset.zero);
+
+        _isSwipingMode = false; // Highlighting mode overrides swiping mode
+        widget.onSwipingModeChanged(false);
+      }
+      widget.onHighlightModeChanged(value);
+
+      _isSettingMode = false;
+    }
+  }
+}
+
+// Define interaction event type
+enum InteractionEventType {
+  down,
+  up,
+  cancel,
+  move,
+  doubleTap,
+  highlightModeSet,
+}
+
+// Define interaction event class
+class InteractionEvent {
+  final InteractionEventType type;
+  final int pointerId;
+  final Offset position;
+  final DateTime timestamp;
+
+  InteractionEvent({
+    required this.type,
+    required this.pointerId,
+    required this.position,
+    required this.timestamp,
+  });
 }
