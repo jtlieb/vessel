@@ -1,5 +1,7 @@
 # Vessel: an e-reader that gets out of the way
-Vessel is a (work-in-progress) EPUB reader designed to bring back the physicality of normal books. It recognizes that you are not here to ogle at it's beauty, you are just here to read your damn book. It addresses the three biggest flaws with existing e-book apps: 
+Vessel is a (work-in-progress) EPUB reader designed to bring back the physicality of normal books. It recognizes that you are not here to ogle at it's animations, responsiveness, or whatever else -- you are just here to read your damn book.
+
+Vessel addresses three big issues with current e-reading solutions:
 ```
 1. Physically touching words is impossible
 When running a finger across words a normal e-reader intercepts this attempt at physical connection, interpreting as a swipe to the next page. 
