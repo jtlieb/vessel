@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:vessel/widgets/book_reader.dart';
 import 'main.dart'; // Import the file where BookReader is defined
 
 class MainTabScreen extends StatefulWidget {
