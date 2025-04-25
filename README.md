@@ -1,14 +1,15 @@
 # Vessel: an e-reader that gets out of the way
-Vessel is a (work-in-progress) EPUB reader designed to bring back the physicality of normal books. It addresses the three biggest flaws with existing e-book apps: 
+Vessel is a (work-in-progress) EPUB reader designed to bring back the physicality of normal books. It recognizes that you are not here to ogle at it's beauty, you are just here to read your damn book. It addresses the three biggest flaws with existing e-book apps: 
+```
+1. Physically touching words is impossible
+When running a finger across words a normal e-reader intercepts this attempt at physical connection, interpreting as a swipe to the next page. 
 
-## 1. I cannot physically touch the words 
-If I run my finger across words as I read, a normal e-reader intercepts my attempts at connection and swipes to the next page. 
+2. Annotating is not effortless 
+To highlight words you must press, hold, and then drag to select a phrase to highlight. This can sometimes be in conflict with flipping pages, so there are many errant highlights. And typing on a tablet is not the smoothest way to get thoughts out. 
 
-## 2. Annotating is not effortless 
-To highlight words, I need to press, hold, and then drag to select a phrase to highlight. This can sometimes be in conflict with flipping pages, so I may errantly highlight words when I'm just trying to swipe, and vice versa.  And typing on a tablet is not the smoothest way to get my thoughts out. 
-
-## 3. My thoughts stay in the book 
-Our current AI moment means it is important to export your notes to whatever your central repository is where AI can help you out.  Currently, my e-reader is where my thoughts go to die, I normally can't get them out of the app I annotated in. 
+3. Thoughts stay in the books, never to escape 
+Our current AI moment means it is important to export your notes to whatever your central repository is where AI can help you out.  Currently, the e-reader is where thoughts go to die. It's difficult to  get them out of where I left them.
+```
 
 ## Getting Started
 
