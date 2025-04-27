@@ -9,3 +9,7 @@
 
 # User Views
 - the down-up-down gesture can be a little finnicky when someone is starting out. People will probably rely on the dobule tap gesture to get started. 
+
+
+# Known Limitations of EPUBX
+- loads entire book into memory. If this becomes an issue, may need to fork
