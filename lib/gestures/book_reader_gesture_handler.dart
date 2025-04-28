@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../models/interaction.dart';
+import '../interaction/models/interaction.dart';
 
 class BookReaderGestureHandler extends StatefulWidget {
   final Widget child;

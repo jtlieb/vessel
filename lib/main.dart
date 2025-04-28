@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:vessel/screens/epub_test_screen.dart';
 import 'widgets/book_reader.dart';
 
 void main() {
@@ -49,13 +50,40 @@ class MainTabScreen extends StatefulWidget {
   State<MainTabScreen> createState() => _MainTabScreenState();
 }
 
-class _MainTabScreenState extends State<MainTabScreen> {
-  int _selectedIndex = 0;
+class _MainTabScreenState extends State<MainTabScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
 
-  static final List<Widget> _widgetOptions = <Widget>[const BookReader()];
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(body: _widgetOptions.elementAt(_selectedIndex));
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        title: const Text('Book Reader'),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(icon: Icon(Icons.book), text: 'Reader'),
+            Tab(icon: Icon(Icons.science), text: 'EPUB Test'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: const [BookReader(), EpubTestScreen()],
+      ),
+    );
   }
 }

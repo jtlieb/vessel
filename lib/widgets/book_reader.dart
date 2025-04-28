@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
-import '../models/interaction.dart';
-import '../physics/fast_page_scroll_physics.dart';
+import '../interaction/models/interaction.dart';
+import '../interaction/fast_page_scroll_physics.dart';
 import '../gestures/book_reader_gesture_handler.dart';
 
 class BookReader extends StatefulWidget {

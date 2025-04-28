@@ -35,6 +35,10 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   epubx: ^4.0.0
+  flutter_html: ^3.0.0
+  flutter_html_table: ^3.0.0
+  visibility_detector: ^0.4.0
+  html: ^0.15.6
 
 dev_dependencies:
   flutter_test:

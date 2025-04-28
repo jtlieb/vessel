@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:vessel/widgets/book_reader.dart';
+import 'package:vessel/screens/epub_test_screen.dart';
 import 'main.dart'; // Import the file where BookReader is defined
 
 class MainTabScreen extends StatefulWidget {
@@ -16,7 +17,7 @@ class _MainTabScreenState extends State<MainTabScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -35,22 +36,14 @@ class _MainTabScreenState extends State<MainTabScreen>
           controller: _tabController,
           tabs: const [
             Tab(icon: Icon(Icons.book), text: 'Reader'),
-            Tab(icon: Icon(Icons.star), text: 'Coming Soon'),
+            Tab(icon: Icon(Icons.science), text: 'EPUB Test'),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
         physics: const NeverScrollableScrollPhysics(), // Disable swipe
-        children: const [
-          BookReader(),
-          Center(
-            child: Text(
-              'More features coming soon!',
-              style: TextStyle(fontSize: 18),
-            ),
-          ),
-        ],
+        children: const [BookReader(), EpubTestScreen()],
       ),
     );
   }
