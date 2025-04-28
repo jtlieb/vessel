@@ -5,6 +5,7 @@ import 'package:html/parser.dart';
 import 'dart:async';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:html/dom.dart' as dom;
+import 'package:html/dom.dart' show Node;
 import 'package:visibility_detector/visibility_detector.dart';
 
 class EpubTestScreen extends StatefulWidget {
@@ -120,7 +121,20 @@ class _EpubTestScreenState extends State<EpubTestScreen> {
         firstHtmlContent = firstHtmlFile.Content;
 
         var document = parse(firstHtmlContent);
-        _pElements = document.getElementsByTagName("p");
+        // Get all text elements (paragraphs, headings, etc.)
+        _pElements =
+            document
+                .querySelectorAll("p, h1, h2, h3, h4, h5, h6")
+                .where(
+                  (element) =>
+                      element.nodes.isNotEmpty &&
+                      element.nodes.any(
+                        (node) =>
+                            node.nodeType == Node.TEXT_NODE &&
+                            node.text!.trim().isNotEmpty,
+                      ),
+                )
+                .toList();
 
         // Start with one paragraph
         _displayedParagraphs = 1;

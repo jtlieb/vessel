@@ -13,3 +13,9 @@
 
 # Known Limitations of EPUBX
 - loads entire book into memory. If this becomes an issue, may need to fork
+
+# Known Limitations of FLUTTER_HTML
+- For pagination to work, I need to implement a custom version where I use a text painter to determine how much to show on a single page. 
+- For now, a quick solution will be to use a VisibilityDetector, add more and more elements until the visibility detector fires, then remove the last one that fired and start the next page with it (calvin_and_hobbes_bridge_comic.jpg). This will mean the current page will end at sort of jagged heights, but it's good enough to test this concept out.
+- For now, I will also only be rendering text. I'm going to start out with <p>, and move on to the rest of them. Images will come later
+- I will also need to extend this library to make the text selectable. As of now there is no way. 
