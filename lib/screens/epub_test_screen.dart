@@ -30,6 +30,8 @@ class _EpubTestScreenState extends State<EpubTestScreen> {
   List<bool> _paragraphVisibility = [];
   double _lastScrollPosition = 0;
   List<double> _paragraphHeights = [];
+  final GlobalKey containerKey = GlobalKey();
+  final GlobalKey contentColumnKey = GlobalKey();
 
   void _calculateParagraphHeights() {
     if (_pElements.isEmpty) {
@@ -40,47 +42,7 @@ class _EpubTestScreenState extends State<EpubTestScreen> {
     _paragraphHeights.clear();
     final width = MediaQuery.of(context).size.width - 32 - 32 - 8 - 2;
 
-    // Calculate available height based on the scroll view's height
-    final screenHeight = MediaQuery.of(context).size.height;
-    final safeAreaTop = MediaQuery.of(context).padding.top;
-    final safeAreaBottom = MediaQuery.of(context).padding.bottom;
-    final headerHeight =
-        24.0 +
-        20.0 +
-        20.0 +
-        8.0 +
-        12.0 +
-        10.0; // Title + buttons + visibility indicator + spacing
-    final containerPadding = 16.0 * 2; // Top and bottom padding
-    final containerMargin = 16.0 * 2; // Top and bottom margin
-    final containerBorder = 2.0; // Border width
-    final bookInfoHeight = 100.0; // Approximate height of book info section
-    final dividerHeight = 1.0;
-
-    final availableHeight =
-        screenHeight -
-        safeAreaTop -
-        safeAreaBottom -
-        headerHeight -
-        containerPadding -
-        containerMargin -
-        containerBorder -
-        bookInfoHeight -
-        dividerHeight;
-
-    print("Screen height: $screenHeight");
-    print("Safe area top: $safeAreaTop");
-    print("Safe area bottom: $safeAreaBottom");
-    print("Header height: $headerHeight");
-    print("Container padding: $containerPadding");
-    print("Container margin: $containerMargin");
-    print("Book info height: $bookInfoHeight");
-    print("Available height: $availableHeight");
-    print("Number of paragraphs: ${_pElements.length}");
-
-    double totalHeight = 0;
-    int visibleCount = 0;
-
+    // First, calculate all paragraph heights
     for (int i = 0; i < _pElements.length; i++) {
       final text = _pElements[i].text;
       if (text.trim().isEmpty) continue;
@@ -99,33 +61,64 @@ class _EpubTestScreenState extends State<EpubTestScreen> {
       );
 
       textPainter.layout(maxWidth: width);
-      final paragraphHeight =
-          textPainter.height + 16 + 8; // text height + margin + padding
+      final paragraphHeight = textPainter.height;
       _paragraphHeights.add(paragraphHeight);
+    }
 
-      print(
-        "Paragraph $i height: $paragraphHeight, total: ${totalHeight + paragraphHeight}",
-      );
+    // Then, after the first frame is rendered, measure the available space
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final RenderBox containerBox =
+          containerKey.currentContext!.findRenderObject() as RenderBox;
+      final containerSize = containerBox.size;
 
-      if (totalHeight + paragraphHeight <= availableHeight) {
-        totalHeight += paragraphHeight;
-        visibleCount++;
-      } else {
-        print("Stopping at paragraph $i - would exceed available height");
+      // Calculate available height by subtracting header and padding
+      final headerHeight = 20.0 + 20.0 + 20.0; // Button row + spacing
+      final padding = 16.0 * 2; // Container padding
+      final availableHeight = containerSize.height - headerHeight - padding;
 
-        // Binary search to determine how many lines of this paragraph can fit
-        final remainingHeight = availableHeight - totalHeight;
-        int low = 1;
-        int high = 100; // Assuming no paragraph has more than 100 lines
-        int mid;
-        double partialHeight;
+      print("\n=== Measurements ===");
+      print("Container height: ${containerSize.height}");
+      print("Header height: $headerHeight");
+      print("Padding: $padding");
+      print("Available height: $availableHeight");
 
-        while (low < high) {
-          mid = (low + high + 1) ~/ 2; // +1 to avoid infinite loop
+      double totalHeight = 0;
+      int visibleCount = 0;
 
-          final partialTextPainter = TextPainter(
+      for (int i = 0; i < _paragraphHeights.length; i++) {
+        final paragraphHeight = _paragraphHeights[i];
+        print("\nParagraph $i:");
+        print("- Height: $paragraphHeight");
+        print("- Cumulative height: ${totalHeight + paragraphHeight}");
+
+        if (totalHeight + paragraphHeight <= availableHeight) {
+          totalHeight += paragraphHeight;
+          visibleCount++;
+        } else {
+          print("Stopping at paragraph $i - would exceed available height");
+          break;
+        }
+      }
+
+      // If we have space left, try to add the next paragraph one line at a time
+      // to maximize the content shown without exceeding available height
+      if (visibleCount < _pElements.length) {
+        final nextParagraphIndex = visibleCount;
+        final nextParagraphText = _pElements[nextParagraphIndex].text;
+
+        // Try to add the next paragraph line by line
+        if (nextParagraphText.isNotEmpty && availableHeight > totalHeight) {
+          final remainingHeight = availableHeight - totalHeight;
+          final words = nextParagraphText.split(' ');
+          String partialText = '';
+
+          print("Attempting to add partial paragraph #$nextParagraphIndex");
+          print("Remaining height: $remainingHeight");
+
+          // Create a TextPainter with the full paragraph text
+          final textPainter = TextPainter(
             text: TextSpan(
-              text: text,
+              text: nextParagraphText,
               style: const TextStyle(
                 fontSize: 16,
                 fontFamily: 'serif',
@@ -133,36 +126,108 @@ class _EpubTestScreenState extends State<EpubTestScreen> {
               ),
             ),
             textDirection: TextDirection.ltr,
-            maxLines: mid,
+            maxLines: null,
           );
 
-          partialTextPainter.layout(maxWidth: width);
-          partialHeight = partialTextPainter.height + 16 + 8;
+          textPainter.layout(maxWidth: containerSize.width - padding);
+          print("Full paragraph height: ${textPainter.height}");
 
-          if (partialHeight <= remainingHeight) {
-            low = mid;
+          // Binary search to find the maximum number of lines that fit
+          int low = 1;
+          int high =
+              (textPainter.height / (16 * 1.5)).ceil(); // Estimate max lines
+          int bestLineCount = 0;
+
+          print("Starting binary search with low=$low, high=$high");
+
+          while (low <= high) {
+            int mid = (low + high) ~/ 2;
+
+            final testPainter = TextPainter(
+              text: TextSpan(
+                text: nextParagraphText,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontFamily: 'serif',
+                  height: 1.5,
+                ),
+              ),
+              textDirection: TextDirection.ltr,
+              maxLines: mid,
+            );
+
+            testPainter.layout(maxWidth: containerSize.width - padding);
+
+            print("Testing $mid lines: height=${testPainter.height}");
+
+            if (testPainter.height <= remainingHeight) {
+              bestLineCount = mid;
+              print("✓ Fits! Updating bestLineCount=$bestLineCount");
+              low = mid + 1;
+            } else {
+              print("✗ Too tall, reducing line count");
+              high = mid - 1;
+            }
+          }
+
+          // If we can fit at least one line
+          if (bestLineCount > 0) {
+            print("Final bestLineCount: $bestLineCount");
+
+            final testPainter = TextPainter(
+              text: TextSpan(
+                text: nextParagraphText,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontFamily: 'serif',
+                  height: 1.5,
+                ),
+              ),
+              textDirection: TextDirection.ltr,
+              maxLines: bestLineCount,
+            );
+
+            testPainter.layout(maxWidth: containerSize.width - padding);
+
+            // Get the portion of text that fits within the bestLineCount
+            final partialText = nextParagraphText.substring(
+              0,
+              testPainter
+                  .getPositionForOffset(
+                    Offset(containerSize.width - padding, testPainter.height),
+                  )
+                  .offset,
+            );
+
+            print("Partial text length: ${partialText.length}");
+            print(
+              "Partial text preview: ${partialText.substring(0, partialText.length > 50 ? 50 : partialText.length)}...",
+            );
+
+            // If we managed to fit at least some text, add it
+            if (partialText.isNotEmpty) {
+              final element = dom.Element.tag('p');
+              element.text = partialText;
+              _pElements[nextParagraphIndex] = element;
+              visibleCount++;
+              print("Added partial paragraph to visible content");
+            }
           } else {
-            high = mid - 1;
+            print("Could not fit even one line of the next paragraph");
           }
         }
-
-        // Use the maximum number of lines that fit
-        if (low > 0) {
-          _splitParagraph = text;
-          _paragraphHeights.add(remainingHeight);
-          visibleCount++; // Include partial paragraph
-          print("Including partial paragraph with $low lines");
-        }
-
-        break;
       }
-    }
 
-    print("Final visible count: $visibleCount");
-    print("Total height used: $totalHeight");
-    setState(() {
-      _displayedParagraphs = visibleCount;
-      _updateHtmlContent();
+      print("\n=== Final Results ===");
+      print("Visible paragraphs: $visibleCount");
+      print("Total height used: $totalHeight");
+      print("Available height: $availableHeight");
+      print("Remaining space: ${availableHeight - totalHeight}");
+
+      setState(() {
+        _displayedParagraphs = visibleCount;
+        _updateHtmlContent();
+      });
     });
   }
 
@@ -322,19 +387,11 @@ Chapters: $chaptersCount
   @override
   Widget build(BuildContext context) {
     print("Building with ${_paragraphTexts.length} paragraphs");
-    print(
-      "First paragraph text: ${_paragraphTexts.isNotEmpty ? _paragraphTexts.first : 'none'}",
-    );
     return Scaffold(
       body: SafeArea(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text(
-              'EPUB Testing Screen',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              textAlign: TextAlign.center,
-            ),
             const SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -369,22 +426,9 @@ Chapters: $chaptersCount
               ],
             ),
             const SizedBox(height: 20),
-            // Visibility indicator
-            Container(
-              padding: const EdgeInsets.all(8),
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade100,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                _visibleContent,
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-            const SizedBox(height: 10),
             Expanded(
               child: Container(
+                key: containerKey,
                 width: double.infinity,
                 margin: const EdgeInsets.symmetric(horizontal: 16.0),
                 padding: const EdgeInsets.all(16),
@@ -397,47 +441,27 @@ Chapters: $chaptersCount
                         ? Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              _bookInfo,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const Divider(),
-                            Expanded(
-                              child: SingleChildScrollView(
-                                controller: _scrollController,
-                                // physics: const NeverScrollableScrollPhysics(),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children:
-                                      _paragraphTexts.map((text) {
-                                        return CustomParagraphPainter(
-                                          text: text,
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            fontFamily: 'serif',
-                                            height: 1.5,
-                                            color: Colors.black,
-                                          ),
-                                          padding: const EdgeInsets.all(4),
-                                          margin: const EdgeInsets.only(
-                                            bottom: 16,
-                                          ),
-                                        );
-                                      }).toList(),
-                                ),
-                              ),
+                            Column(
+                              key: contentColumnKey,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children:
+                                  _paragraphTexts.map((text) {
+                                    return CustomParagraphPainter(
+                                      text: text,
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontFamily: 'serif',
+                                        height: 1.5,
+                                        color: Colors.black,
+                                      ),
+                                      padding: const EdgeInsets.all(4),
+                                      margin: const EdgeInsets.only(bottom: 16),
+                                    );
+                                  }).toList(),
                             ),
                           ],
                         )
-                        : SingleChildScrollView(
-                          child: Text(
-                            _bookInfo,
-                            style: const TextStyle(fontSize: 16),
-                          ),
-                        ),
+                        : Text(_bookInfo, style: const TextStyle(fontSize: 16)),
               ),
             ),
           ],
