@@ -22,17 +22,172 @@ class _EpubTestScreenState extends State<EpubTestScreen> {
   String? _firstChapterHtml;
   final ScrollController _scrollController = ScrollController();
   String _visibleContent = "Nothing visible yet";
-  double _htmlViewportHeight = 300; // Default height for the HTML viewport
-  bool _isDragging = false;
   List<dom.Element> _pElements = [];
   int _displayedParagraphs = 0;
   String _currentHtml = '';
   String? _splitParagraph = null;
+  List<String> _paragraphTexts = [];
+  List<bool> _paragraphVisibility = [];
+  double _lastScrollPosition = 0;
+  List<double> _paragraphHeights = [];
+
+  void _calculateParagraphHeights() {
+    if (_pElements.isEmpty) {
+      print("No paragraphs to calculate");
+      return;
+    }
+
+    _paragraphHeights.clear();
+    final width = MediaQuery.of(context).size.width - 32 - 32 - 8 - 2;
+
+    // Calculate available height based on the scroll view's height
+    final screenHeight = MediaQuery.of(context).size.height;
+    final safeAreaTop = MediaQuery.of(context).padding.top;
+    final safeAreaBottom = MediaQuery.of(context).padding.bottom;
+    final headerHeight =
+        24.0 +
+        20.0 +
+        20.0 +
+        8.0 +
+        12.0 +
+        10.0; // Title + buttons + visibility indicator + spacing
+    final containerPadding = 16.0 * 2; // Top and bottom padding
+    final containerMargin = 16.0 * 2; // Top and bottom margin
+    final containerBorder = 2.0; // Border width
+    final bookInfoHeight = 100.0; // Approximate height of book info section
+    final dividerHeight = 1.0;
+
+    final availableHeight =
+        screenHeight -
+        safeAreaTop -
+        safeAreaBottom -
+        headerHeight -
+        containerPadding -
+        containerMargin -
+        containerBorder -
+        bookInfoHeight -
+        dividerHeight;
+
+    print("Screen height: $screenHeight");
+    print("Safe area top: $safeAreaTop");
+    print("Safe area bottom: $safeAreaBottom");
+    print("Header height: $headerHeight");
+    print("Container padding: $containerPadding");
+    print("Container margin: $containerMargin");
+    print("Book info height: $bookInfoHeight");
+    print("Available height: $availableHeight");
+    print("Number of paragraphs: ${_pElements.length}");
+
+    double totalHeight = 0;
+    int visibleCount = 0;
+
+    for (int i = 0; i < _pElements.length; i++) {
+      final text = _pElements[i].text;
+      if (text.trim().isEmpty) continue;
+
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: text,
+          style: const TextStyle(
+            fontSize: 16,
+            fontFamily: 'serif',
+            height: 1.5,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: null,
+      );
+
+      textPainter.layout(maxWidth: width);
+      final paragraphHeight =
+          textPainter.height + 16 + 8; // text height + margin + padding
+      _paragraphHeights.add(paragraphHeight);
+
+      print(
+        "Paragraph $i height: $paragraphHeight, total: ${totalHeight + paragraphHeight}",
+      );
+
+      if (totalHeight + paragraphHeight <= availableHeight) {
+        totalHeight += paragraphHeight;
+        visibleCount++;
+      } else {
+        print("Stopping at paragraph $i - would exceed available height");
+
+        // Binary search to determine how many lines of this paragraph can fit
+        final remainingHeight = availableHeight - totalHeight;
+        int low = 1;
+        int high = 100; // Assuming no paragraph has more than 100 lines
+        int mid;
+        double partialHeight;
+
+        while (low < high) {
+          mid = (low + high + 1) ~/ 2; // +1 to avoid infinite loop
+
+          final partialTextPainter = TextPainter(
+            text: TextSpan(
+              text: text,
+              style: const TextStyle(
+                fontSize: 16,
+                fontFamily: 'serif',
+                height: 1.5,
+              ),
+            ),
+            textDirection: TextDirection.ltr,
+            maxLines: mid,
+          );
+
+          partialTextPainter.layout(maxWidth: width);
+          partialHeight = partialTextPainter.height + 16 + 8;
+
+          if (partialHeight <= remainingHeight) {
+            low = mid;
+          } else {
+            high = mid - 1;
+          }
+        }
+
+        // Use the maximum number of lines that fit
+        if (low > 0) {
+          _splitParagraph = text;
+          _paragraphHeights.add(remainingHeight);
+          visibleCount++; // Include partial paragraph
+          print("Including partial paragraph with $low lines");
+        }
+
+        break;
+      }
+    }
+
+    print("Final visible count: $visibleCount");
+    print("Total height used: $totalHeight");
+    setState(() {
+      _displayedParagraphs = visibleCount;
+      _updateHtmlContent();
+    });
+  }
+
+  void _updateHtmlContent() {
+    if (_pElements.isEmpty) return;
+
+    _paragraphTexts.clear();
+    for (int i = 0; i < _displayedParagraphs; i++) {
+      if (i < _pElements.length) {
+        final text = _pElements[i].text;
+        if (text.trim().isNotEmpty) {
+          _paragraphTexts.add(text);
+        }
+      }
+    }
+    print("Updated paragraph texts: ${_paragraphTexts.length}");
+  }
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _calculateParagraphHeights();
+    });
   }
 
   @override
@@ -43,28 +198,47 @@ class _EpubTestScreenState extends State<EpubTestScreen> {
   }
 
   void _onScroll() {
-    // Calculate which content is visible based on scroll position
-    final double scrollPosition = _scrollController.position.pixels;
-    final double maxScrollExtent = _scrollController.position.maxScrollExtent;
-    final double viewportHeight = _scrollController.position.viewportDimension;
+    if (_scrollController.hasClients) {
+      final scrollPosition = _scrollController.position.pixels;
+      final viewportHeight = _scrollController.position.viewportDimension;
 
-    // Calculate the percentage through the content
-    final double scrollPercentage =
-        maxScrollExtent > 0
-            ? double.parse(
-              (scrollPosition / maxScrollExtent * 100).toStringAsFixed(1),
-            )
-            : 0.0;
+      // Calculate which paragraphs are visible
+      double currentY = 0;
+      List<bool> newVisibility = [];
 
-    // Get visible range
-    final double visibleStart = scrollPosition;
-    final double visibleEnd = scrollPosition + viewportHeight;
+      for (int i = 0; i < _paragraphTexts.length; i++) {
+        final text = _paragraphTexts[i];
+        final textPainter = TextPainter(
+          text: TextSpan(
+            text: text,
+            style: const TextStyle(
+              fontSize: 16,
+              fontFamily: 'serif',
+              height: 1.5,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          maxLines: null,
+        );
 
-    setState(() {
-      _visibleContent =
-          'Visible section: ${visibleStart.toStringAsFixed(0)} to ${visibleEnd.toStringAsFixed(0)} px\n'
-          'Scroll position: $scrollPercentage%';
-    });
+        final width = MediaQuery.of(context).size.width - 32 - 32 - 8 - 2;
+        textPainter.layout(maxWidth: width);
+        final paragraphHeight =
+            textPainter.height + 16 + 8; // text height + margin + padding
+
+        final isVisible =
+            currentY + paragraphHeight > scrollPosition &&
+            currentY < scrollPosition + viewportHeight;
+
+        newVisibility.add(isVisible);
+        currentY += paragraphHeight;
+      }
+
+      setState(() {
+        _paragraphVisibility = newVisibility;
+        _lastScrollPosition = scrollPosition;
+      });
+    }
   }
 
   void _addNextParagraph() {
@@ -76,21 +250,6 @@ class _EpubTestScreenState extends State<EpubTestScreen> {
     }
   }
 
-  void _updateHtmlContent() {
-    if (_pElements.isEmpty) return;
-
-    // Create a new HTML string with only the paragraphs we want to display
-    final buffer = StringBuffer();
-    for (int i = 0; i < _displayedParagraphs; i++) {
-      if (i < _pElements.length) {
-        buffer.write(_pElements[i].outerHtml);
-      }
-    }
-
-    _currentHtml = buffer.toString();
-    _firstChapterHtml = _currentHtml;
-  }
-
   Future<void> _loadBook() async {
     setState(() {
       _isLoading = true;
@@ -99,6 +258,8 @@ class _EpubTestScreenState extends State<EpubTestScreen> {
       _pElements = [];
       _displayedParagraphs = 0;
       _currentHtml = '';
+      _paragraphTexts = [];
+      _paragraphHeights = [];
     });
 
     try {
@@ -136,9 +297,7 @@ class _EpubTestScreenState extends State<EpubTestScreen> {
                 )
                 .toList();
 
-        // Start with one paragraph
-        _displayedParagraphs = 1;
-        _updateHtmlContent();
+        _calculateParagraphHeights();
       }
 
       setState(() {
@@ -162,6 +321,10 @@ Chapters: $chaptersCount
 
   @override
   Widget build(BuildContext context) {
+    print("Building with ${_paragraphTexts.length} paragraphs");
+    print(
+      "First paragraph text: ${_paragraphTexts.isNotEmpty ? _paragraphTexts.first : 'none'}",
+    );
     return Scaffold(
       body: SafeArea(
         child: Column(
@@ -221,138 +384,132 @@ Chapters: $chaptersCount
             ),
             const SizedBox(height: 10),
             Expanded(
-              child: Column(
-                children: [
-                  Container(
-                    width: double.infinity,
-                    height: _htmlViewportHeight,
-                    margin: const EdgeInsets.symmetric(horizontal: 16.0),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child:
-                        _firstChapterHtml != null
-                            ? Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _bookInfo,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const Divider(),
-                                SingleChildScrollView(
-                                  child: VisibilityDetector(
-                                    key: Key('test'),
-                                    onVisibilityChanged: (visibilityInfo) {
-                                      print(
-                                        'Visibility info: ${visibilityInfo.visibleFraction}',
-                                      );
-                                    },
-                                    child: Html(
-                                      data: _firstChapterHtml!,
-                                      style: {
-                                        "p": Style(
-                                          fontSize: FontSize(16),
-                                          fontFamily: 'serif',
-                                          lineHeight: LineHeight(1.5),
-                                          margin: Margins.only(bottom: 16),
-                                          border: Border.all(
-                                            color: Colors.green,
-                                            width: 1,
-                                          ),
-                                          padding: HtmlPaddings.all(4),
-                                        ),
-                                      },
-                                      onAnchorTap: (url, _, __) {
-                                        // You can handle anchor taps here
-                                        print('Tapped on link: $url');
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            )
-                            : SingleChildScrollView(
-                              child: Text(
-                                _bookInfo,
-                                style: const TextStyle(fontSize: 16),
+              child: Container(
+                width: double.infinity,
+                margin: const EdgeInsets.symmetric(horizontal: 16.0),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child:
+                    _pElements.isNotEmpty
+                        ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _bookInfo,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
-                  ),
-                  // Resizable handle
-                  GestureDetector(
-                    onVerticalDragStart: (_) {
-                      setState(() {
-                        _isDragging = true;
-                      });
-                    },
-                    onVerticalDragUpdate: (details) {
-                      setState(() {
-                        _htmlViewportHeight =
-                            (_htmlViewportHeight + details.delta.dy).clamp(
-                              100.0,
-                              MediaQuery.of(context).size.height - 200,
-                            );
-                      });
-                    },
-                    onVerticalDragEnd: (_) {
-                      setState(() {
-                        _isDragging = false;
-                      });
-                    },
-                    child: Container(
-                      width: double.infinity,
-                      height: 16,
-                      margin: const EdgeInsets.symmetric(horizontal: 16.0),
-                      decoration: BoxDecoration(
-                        color:
-                            _isDragging
-                                ? Colors.grey.shade400
-                                : Colors.grey.shade300,
-                        borderRadius: const BorderRadius.only(
-                          bottomLeft: Radius.circular(8),
-                          bottomRight: Radius.circular(8),
-                        ),
-                      ),
-                      child: Center(
-                        child: Container(
-                          width: 40,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade600,
-                            borderRadius: BorderRadius.circular(2),
+                            const Divider(),
+                            Expanded(
+                              child: SingleChildScrollView(
+                                controller: _scrollController,
+                                // physics: const NeverScrollableScrollPhysics(),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children:
+                                      _paragraphTexts.map((text) {
+                                        return CustomParagraphPainter(
+                                          text: text,
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontFamily: 'serif',
+                                            height: 1.5,
+                                            color: Colors.black,
+                                          ),
+                                          padding: const EdgeInsets.all(4),
+                                          margin: const EdgeInsets.only(
+                                            bottom: 16,
+                                          ),
+                                        );
+                                      }).toList(),
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                        : SingleChildScrollView(
+                          child: Text(
+                            _bookInfo,
+                            style: const TextStyle(fontSize: 16),
                           ),
                         ),
-                      ),
-                    ),
-                  ),
-                  // Remaining space
-                  Expanded(
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(
-                        horizontal: 16.0,
-                        vertical: 8.0,
-                      ),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade300),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Center(
-                        child: Text('Additional content can go here'),
-                      ),
-                    ),
-                  ),
-                ],
               ),
             ),
           ],
         ),
       ),
     );
+  }
+}
+
+class CustomParagraphPainter extends StatelessWidget {
+  final String text;
+  final TextStyle style;
+  final EdgeInsets padding;
+  final EdgeInsets margin;
+
+  const CustomParagraphPainter({
+    Key? key,
+    required this.text,
+    required this.style,
+    required this.padding,
+    required this.margin,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: margin,
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.green, width: 1),
+      ),
+      padding: padding,
+      width: double.infinity,
+      child: CustomPaint(
+        painter: TextPainterWidget(text: text, style: style),
+        size: Size(double.infinity, _calculateTextHeight(context)),
+      ),
+    );
+  }
+
+  double _calculateTextHeight(BuildContext context) {
+    final textPainter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+      maxLines: null,
+    );
+
+    final width = MediaQuery.of(context).size.width - 32 - 32 - 8 - 2;
+    textPainter.layout(maxWidth: width);
+    return textPainter.height + padding.vertical;
+  }
+}
+
+class TextPainterWidget extends CustomPainter {
+  final String text;
+  final TextStyle style;
+
+  TextPainterWidget({required this.text, required this.style});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final textPainter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+      maxLines: null,
+    );
+
+    textPainter.layout(maxWidth: size.width);
+    textPainter.paint(canvas, Offset.zero);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) {
+    return true;
   }
 }
